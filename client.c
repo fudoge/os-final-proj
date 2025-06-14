@@ -9,6 +9,7 @@
 #include <pthread.h>
 
 #define BUF_SIZE 1024
+#define MSG_SIZE (BUF_SIZE * 2)
 #define NORMAL_SIZE 32
 
 void *send_msg(void *arg);
@@ -71,10 +72,10 @@ int main(int argc, char *argv[]) {
 
 void *send_msg(void *arg) {
     int sockfd = *((int *)arg);
-    char name_msg[NORMAL_SIZE + BUF_SIZE];
+    char name_msg[MSG_SIZE];
     char buf[BUF_SIZE];
 
-    snprintf(name_msg, sizeof(name_msg), "**Alert** New User Connected: %s\n", name);
+    snprintf(name_msg, sizeof(name_msg), "[INFO] New User Connected: %s\n", name);
     write(sockfd, name_msg, strlen(name_msg));
 
     while(1) {
@@ -91,7 +92,7 @@ void *send_msg(void *arg) {
             printf("Changed successfully\n");
 
             // alert to room members
-            snprintf(name_msg, sizeof(name_msg), "**Alert** Username Changed (%s -> %s)\n", last_name, name);
+            snprintf(name_msg, sizeof(name_msg), "[INFO] Username Changed (%s -> %s)\n", last_name, name);
             write(sockfd, name_msg, strlen(name_msg));
             continue;
         }
@@ -120,7 +121,7 @@ void *send_msg(void *arg) {
         }
         if(checkprefix(buf, "/quit")) {
             // alert to room members
-            snprintf(name_msg, sizeof(name_msg), "**Alert** User Disconnected: %s\n", name);
+            snprintf(name_msg, sizeof(name_msg), "[INFO] User Disconnected: %s\n", name);
             write(sockfd, name_msg, strlen(name_msg));
             printf("Disconnected\n");
             close(sockfd);
