@@ -391,7 +391,7 @@ void* client_thread(void* arg) {
 
                 char log_buf[LOGBUF_SIZE];
                 snprintf(log_buf, sizeof(log_buf),
-                    "User %d (%s:%d) moved from room %d to room %d",
+                    "User %d (%s:%d) moved from room %d to room %d\n",
                     c->client_fd,
                     inet_ntoa(c->client_addr.sin_addr),
                     ntohs(c->client_addr.sin_port),
@@ -489,7 +489,7 @@ void* client_thread(void* arg) {
         } else if (n == 0) {
             char log_buf[LOGBUF_SIZE];
             snprintf(log_buf, sizeof(log_buf),
-                "User %d (%s:%d) disconnected from room %d",
+                "User %d (%s:%d) disconnected from room %d\n",
                 c->client_fd,
                 inet_ntoa(c->client_addr.sin_addr),
                 ntohs(c->client_addr.sin_port),
