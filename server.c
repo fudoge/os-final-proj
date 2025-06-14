@@ -71,6 +71,7 @@ pthread_t log_tid;
 FILE *log_fp;
 int log_run = 1;
 
+
 int main() {
     int listenfd, sockfd, room_no;
     struct sockaddr_in serv_addr, client_addr;
@@ -178,7 +179,6 @@ int main() {
 
         if(client_success) {
             pthread_create(&c->tid, NULL, client_thread, c);
-            pthread_detach(c->tid);
         }
 
     }
@@ -303,6 +303,11 @@ void consume_msg(Client *c) {
 }
 
 void* client_thread(void* arg) {
+    sigset_t set;
+    sigemptyset(&set);
+    sigaddset(&set, SIGINT);
+    pthread_sigmask(SIG_BLOCK, &set, NULL);
+
     Client *c = (Client *) arg;
     int clientfd = c->client_fd;
 
@@ -505,10 +510,6 @@ void* client_thread(void* arg) {
     }
 
     leave_room(c->room_idx, c);
-    close(clientfd);
-    pthread_mutex_destroy(&c->mq->lock);
-    free(c->mq);
-    free(c);
     return NULL;
 }
 
@@ -559,6 +560,25 @@ void clear_resources() {
                 shutdown(c->client_fd, SHUT_RDWR);
             }
         }
+    }
+
+    for(int i = 0; i < MAX_ROOMS; i++) {
+        Room *r = rt->rooms[i];
+        if(!r) continue;
+        for(int j = 0; j < MAX_USER_EACH_ROOM; j++) {
+            Client *c = r->users[j];
+            if(!c) continue;
+
+            void *ret;
+            pthread_join(c->tid, &ret);
+
+            close(c->client_fd);
+            pthread_mutex_destroy(&c->mq->lock);
+            free(c->mq);
+            free(c);
+            r->users[j] = NULL;
+        }
+        r->num_clients = 0;
     }
 
     for(int i = 0; i < MAX_ROOMS; i++) {
