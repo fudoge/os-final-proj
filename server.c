@@ -578,6 +578,7 @@ void clear_resources() {
     pthread_join(log_tid, NULL);
     if(log_fp) {
         fclose(log_fp);
+        log_fp = NULL;
     }
     pthread_mutex_destroy(&LogMQ->lock);
     free(LogMQ);
