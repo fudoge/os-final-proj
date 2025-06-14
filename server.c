@@ -13,6 +13,7 @@
 
 #define PORT 8080
 #define BUF_SIZE 1024
+#define LOGBUF_SIZE (BUF_SIZE * 2)
 #define QUEUE_SIZE (BUF_SIZE * 10)
 #define NORMAL_SIZE 64
 #define MAX_ROOMS 10
@@ -59,10 +60,16 @@ void broadcast(Client *sender, Room *r, char *msg, size_t len);
 int enqueue_msg(MessageQueue *mq, char *msg, size_t len);
 void consume_msg(Client *c);
 void *client_thread(void *arg);
+void *log_thread(void *arg);
+void get_timestamp(char *buf, size_t sz);
+void log_print(char *msg);
 void clear_resources();
-void delete_room_recursively(Room *r);
 
 RoomTable *rt;
+MessageQueue *LogMQ;
+pthread_t log_tid;
+FILE *log_fp;
+int log_run = 1;
 
 int main() {
     int listenfd, sockfd, room_no;
@@ -84,23 +91,37 @@ int main() {
         clear_resources();
         exit(1);
     }
-
     memset(&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(PORT);
     serv_addr.sin_addr.s_addr = INADDR_ANY;
-
     if(bind(listenfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0){
         perror("bind error");
         clear_resources();
         exit(1);
     }
-
     if(listen(listenfd, 5) < 0) {
         perror("listen error");
         clear_resources();
         exit(1);
     }
+
+    time_t now = time(NULL);
+    struct tm *ltm = localtime(&now);
+    char filename[NORMAL_SIZE];
+    strftime(filename, sizeof(filename), "server_%Y%m%d_%H%M%S.log", ltm);
+    log_fp = fopen(filename, "a");
+    if(!log_fp) {
+        perror("fopen error");
+        clear_resources();
+        exit(1);
+    }
+
+    LogMQ = malloc(sizeof(MessageQueue));
+    pthread_mutex_init(&LogMQ->lock, NULL);
+    LogMQ->head = 0;
+    LogMQ->tail = 0;
+    pthread_create(&log_tid, NULL, log_thread, NULL);
 
     while(1) {
         client_len = sizeof(client_addr);
@@ -318,12 +339,15 @@ void* client_thread(void* arg) {
             if(checkprefix(c->recv_buf, "/create")) {
                 int response = create_room();
                 char buf[BUF_SIZE];
+                char log_buf[LOGBUF_SIZE];
                 if(response != -1) {
                     snprintf(buf, sizeof(buf), "New Room Created Successfully, ID: %d\n", response);
+                    snprintf(log_buf, sizeof(log_buf), "%s by %d(%s:%d)", buf, c->client_fd, inet_ntoa(c->client_addr.sin_addr), ntohs(c->client_addr.sin_port));
                 } else {
                     snprintf(buf, sizeof(buf), "Failed to Create Room.\n");
                 }
                 enqueue_msg(c->mq, buf, sizeof(buf));
+                log_print(log_buf);
                 continue;
             }
             if(checkprefix(c->recv_buf, "/join")) {
@@ -356,6 +380,17 @@ void* client_thread(void* arg) {
                 int lastroom = c->room_idx;
                 c->room_idx = roomno;
                 join_room(roomno, c);
+
+                char log_buf[LOGBUF_SIZE];
+                snprintf(log_buf, sizeof(log_buf),
+                    "User %d (%s:%d) moved from room %d to room %d",
+                    c->client_fd,
+                    inet_ntoa(c->client_addr.sin_addr),
+                    ntohs(c->client_addr.sin_port),
+                    lastroom,
+                    c->room_idx
+                );
+                log_print(log_buf);
 
                 char *sender = NULL;
                 char *p = strchr(c->recv_buf, ']');
@@ -415,14 +450,44 @@ void* client_thread(void* arg) {
                 pthread_mutex_unlock(&r->lock);
                 delete_room(roomno);
 
+                delete_room(roomno);
+                char log_buf[LOGBUF_SIZE];
+                snprintf(log_buf, sizeof(log_buf),
+                    "User %d (%s:%d) deleted room %d",
+                    c->client_fd,
+                    inet_ntoa(c->client_addr.sin_addr),
+                    ntohs(c->client_addr.sin_port),
+                    roomno
+                );
+                log_print(log_buf);
+
                 char client_resp[BUF_SIZE];
                 snprintf(client_resp, sizeof(client_resp), "Room deleted successfully: %d\n", roomno);
                 enqueue_msg(c->mq, client_resp, strlen(client_resp));
                 continue;
             }
 
+            char log_buf[LOGBUF_SIZE];
+            snprintf(log_buf, sizeof(log_buf),
+                "Message send from %d (%s:%d) in room %d: %s",
+                c->client_fd,
+                inet_ntoa(c->client_addr.sin_addr),
+                ntohs(c->client_addr.sin_port),
+                c->room_idx,
+                c->recv_buf
+            );
+            log_print(log_buf);
             broadcast(c, rt->rooms[c->room_idx], c->recv_buf, n);
         } else if (n == 0) {
+            char log_buf[LOGBUF_SIZE];
+            snprintf(log_buf, sizeof(log_buf),
+                "User %d (%s:%d) disconnected from room %d",
+                c->client_fd,
+                inet_ntoa(c->client_addr.sin_addr),
+                ntohs(c->client_addr.sin_port),
+                c->room_idx
+            );
+            log_print(log_buf);
             break;
         } else {
             if(errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -442,6 +507,43 @@ void* client_thread(void* arg) {
     free(c->mq);
     free(c);
     return NULL;
+}
+
+void *log_thread(void *arg) {
+    while(log_run) {
+        usleep(100000);
+        int len = 0;
+        char buf[QUEUE_SIZE];
+        memset(buf, 0, sizeof(buf));
+        pthread_mutex_lock(&LogMQ->lock);
+        while(LogMQ->head != LogMQ->tail && len < QUEUE_SIZE - 1) {
+            buf[len++] = LogMQ->messages[LogMQ->head];
+            LogMQ->head = (LogMQ->head + 1) % QUEUE_SIZE;
+        }
+        pthread_mutex_unlock(&LogMQ->lock);
+
+        if(len > 0) {
+            buf[len] = '\0';
+            fprintf(log_fp, "%s", buf);
+            fflush(log_fp);
+        }
+    }
+    return NULL;
+}
+
+void get_timestamp(char *buf, size_t sz) {
+    time_t now = time(NULL);
+    struct tm *tm_info = localtime(&now);
+    strftime(buf, sz, "%Y-%m-%d %H:%M:%S", tm_info);
+}
+
+void log_print(char *msg) {
+    char buf[LOGBUF_SIZE];
+    char ts[NORMAL_SIZE];
+    get_timestamp(ts, sizeof(ts));
+
+    snprintf(buf, sizeof(buf), "[%s] %s", ts, msg);
+    enqueue_msg(LogMQ, buf, sizeof(buf));
 }
 
 void clear_resources() {
@@ -495,4 +597,13 @@ void clear_resources() {
         pthread_mutex_destroy(&rt->locks[i]);
     }
     free(rt);
+
+    log_run = 0;
+    pthread_join(log_tid, NULL);
+    if(log_fp) {
+        fclose(log_fp);
+        log_fp = NULL;
+    }
+    pthread_mutex_destroy(&LogMQ->lock);
+    free(LogMQ);
 }
