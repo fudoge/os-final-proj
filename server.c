@@ -176,7 +176,10 @@ int main() {
             );
         send(sockfd, onboarding_buf, sizeof(onboarding_buf), 0);
 
-        if(client_success) pthread_create(&c->tid, NULL, client_thread, c);
+        if(client_success) {
+            pthread_create(&c->tid, NULL, client_thread, c);
+            pthread_detach(c->tid);
+        }
 
     }
     return 0;
@@ -559,33 +562,6 @@ void clear_resources() {
     }
 
     for(int i = 0; i < MAX_ROOMS; i++) {
-        Room *r = rt->rooms[i];
-        if(!r) continue;
-        for(int j = 0; j < MAX_USER_EACH_ROOM; j++) {
-            Client *c =r->users[j];
-            if(c) {
-                pthread_join(c->tid, NULL);
-            }
-        }
-    }
-
-    for(int i = 0; i < MAX_ROOMS; i++) {
-        Room *r = rt->rooms[i];
-        if(!r) continue;
-        for(int j = 0; j < MAX_USER_EACH_ROOM; j++) {
-            Client *c = r->users[j];
-            if(c) {
-                close(c->client_fd);
-                pthread_mutex_destroy(&c->mq->lock);
-                free(c->mq);
-                free(c);
-                r->users[j] = NULL;
-            }
-        }
-        r->num_clients = 0;
-    }
-
-    for(int i = 0; i < MAX_ROOMS; i++) {
         pthread_mutex_lock(&rt->locks[i]);
         Room *r = rt->rooms[i];
         if(r) {
@@ -602,7 +578,6 @@ void clear_resources() {
     pthread_join(log_tid, NULL);
     if(log_fp) {
         fclose(log_fp);
-        log_fp = NULL;
     }
     pthread_mutex_destroy(&LogMQ->lock);
     free(LogMQ);
