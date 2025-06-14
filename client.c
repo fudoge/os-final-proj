@@ -82,13 +82,14 @@ void *send_msg(void *arg) {
         fgets(buf, BUF_SIZE, stdin);
         if(strcmp(buf, "\n") == 0) continue;
         if(checkprefix(buf, "/setname")) {
+            char newname[NAME_MAX];
             printf("Your new name is(max 31 byte(s)): ");
-            fgets(buf, BUF_SIZE, stdin);
-            buf[strcspn(buf, "\n")] = 0;
+            fgets(newname, BUF_SIZE, stdin);
+            buf[strcspn(newname, "\n")] = 0;
 
             char last_name[NAME_MAX];
             snprintf(last_name, sizeof(last_name), "%s", name);
-            snprintf(name, sizeof(name), "[%s]", buf);
+            snprintf(name, sizeof(name), "[%s]", newname);
             printf("Changed successfully\n");
 
             // alert to room members
