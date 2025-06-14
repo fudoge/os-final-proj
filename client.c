@@ -75,7 +75,8 @@ void *send_msg(void *arg) {
     char name_msg[MSG_SIZE];
     char buf[BUF_SIZE];
 
-    snprintf(name_msg, sizeof(name_msg), "[INFO] New User Connected: %s\n", name);
+    snprintf(name_msg, sizeof(name_msg), 
+    "[INFO] New User Connected: %s\n", name);
     write(sockfd, name_msg, strlen(name_msg));
 
     while(1) {
@@ -85,7 +86,7 @@ void *send_msg(void *arg) {
             char newname[NORMAL_SIZE-2];
             printf("Your new name is(max 29 byte(s)): ");
             fgets(newname, sizeof(newname), stdin);
-            buf[strcspn(newname, "\n")] = 0;
+            newname[strcspn(newname, "\n")] = 0;
 
             char last_name[NORMAL_SIZE];
             snprintf(last_name, sizeof(last_name), "%s", name);
@@ -93,7 +94,8 @@ void *send_msg(void *arg) {
             printf("Changed successfully\n");
 
             // alert to room members
-            snprintf(name_msg, sizeof(name_msg), "[INFO] Username Changed (%s -> %s)\n", last_name, name);
+            snprintf(name_msg, sizeof(name_msg), 
+            "[INFO] Username Changed (%s -> %s)\n", last_name, name);
             write(sockfd, name_msg, strlen(name_msg));
             continue;
         }
@@ -107,7 +109,8 @@ void *send_msg(void *arg) {
             printf("Send Message to %s:\n", target);
             fgets(buf, sizeof(buf), stdin);
 
-            snprintf(name_msg, sizeof(name_msg), "%s /whisper [%s] %s", name, target, buf);
+            snprintf(name_msg, sizeof(name_msg), 
+            "%s /whisper [%s] %s", name, target, buf);
             write(sockfd, name_msg, strlen(name_msg));
             continue;
         }
@@ -122,7 +125,8 @@ void *send_msg(void *arg) {
         }
         if(checkprefix(buf, "/quit")) {
             // alert to room members
-            snprintf(name_msg, sizeof(name_msg), "[INFO] User Disconnected: %s\n", name);
+            snprintf(name_msg, sizeof(name_msg), 
+            "[INFO] User Disconnected: %s\n", name);
             write(sockfd, name_msg, strlen(name_msg));
             printf("Disconnected\n");
             close(sockfd);
@@ -145,7 +149,6 @@ void *recv_msg(void *arg) {
 
     while(1) {
         int n = read(sockfd, name_msg, NORMAL_SIZE + BUF_SIZE - 1);
-
         if(n < 0) {
             perror("recv error");
             return (void *)-1;
@@ -165,7 +168,6 @@ void *recv_msg(void *arg) {
         }
         *p1 = '\0';
         char *sender = tmp;
-
         char *p2 = strchr(p1+1, ' ');
         if (!p2) {
             fputs(name_msg, stdout);
@@ -173,7 +175,6 @@ void *recv_msg(void *arg) {
         }
         *p2 = '\0';
         char *cmd = p1+1;
-
         char *p3 = strchr(p2+1, ' ');
         if (!p3) {
             fputs(name_msg, stdout);
@@ -181,22 +182,17 @@ void *recv_msg(void *arg) {
         }
         *p3 = '\0';
         char *target = p2+1;
-
         char *message = p3+1;
-
         if (strcmp(cmd, "/whisper") == 0) {
             if(strcmp(target, name) == 0) {
                 size_t L = strlen(message);
                 if (L && message[L-1] == '\n') message[L-1] = '\0';
-
                 printf("**Whisper from %s**: %s\n", sender, message);
             }
         } else {
             fputs(name_msg, stdout);
         }
     }
-
-
     return NULL;
 }
 
@@ -204,8 +200,8 @@ void help() {
     printf("==========Chat Server Commands========\n");
     printf("/rooms            Show chatrooms with status\n");
     printf("/create           Create a new Chatroom. It can be ignored by server\n");
-    printf("/join             Join Chatroom\n");
-    printf("/delete           Delete Empty Chatroom\n");
+    printf("/join <roomno>    Join Chatroom\n");
+    printf("/delete <roomno>  Delete Empty Chatroom\n");
     printf("/setname          New Nickname\n");
     printf("/whisper          Send private message\n");
     printf("/anonymous <msg>  Send anonymous message\n");

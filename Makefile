@@ -4,4 +4,4 @@ server: server.c
 	gcc -pthread -o server server.c
 
 clean:
-	rm server client
+	rm server client *.log

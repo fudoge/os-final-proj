@@ -15,7 +15,7 @@
 #define BUF_SIZE 1024
 #define LOGBUF_SIZE (BUF_SIZE * 2)
 #define QUEUE_SIZE (BUF_SIZE * 10)
-#define NORMAL_SIZE 64
+#define NORMAL_SIZE 65
 #define MAX_ROOMS 10
 #define MAX_USER_EACH_ROOM 20
 
@@ -77,8 +77,10 @@ int main() {
     struct sockaddr_in serv_addr, client_addr;
     socklen_t client_len;
 
+    // register signal handler
     signal(SIGINT, handler);
 
+    // Initialize Room Table
     rt = malloc(sizeof(RoomTable));
     for(int i = 0; i < MAX_ROOMS; i++) {
         rt->rooms[i] = NULL;
@@ -86,6 +88,7 @@ int main() {
     }
     room_no = create_room(); // initialize first(default) chatroom
 
+    // Server Init..
     listenfd = socket(AF_INET, SOCK_STREAM, 0);
     if(listenfd < 0) {
         perror("socket error");
@@ -154,7 +157,10 @@ int main() {
             pthread_mutex_unlock(&rt->locks[i]);
             if(client_success) break;
         }
-        if(!client_success) close(sockfd);
+        if(!client_success) {
+            close(sockfd);
+            continue;
+        }
 
         // onboarding msg for new user
         time_t current_time;
@@ -176,10 +182,7 @@ int main() {
             room_idx
             );
         send(sockfd, onboarding_buf, sizeof(onboarding_buf), 0);
-
-        if(client_success) {
-            pthread_create(&c->tid, NULL, client_thread, c);
-        }
+        pthread_create(&c->tid, NULL, client_thread, c);
 
     }
     return 0;
@@ -250,16 +253,12 @@ void leave_room(int room_idx, Client *c) {
 }
 
 void delete_room(int room_idx) {
-    pthread_mutex_lock(&rt->locks[room_idx]);
-
     Room *r = rt->rooms[room_idx];
     if (r) {
         pthread_mutex_destroy(&r->lock);
         free(r);
         rt->rooms[room_idx] = NULL;
     }
-
-    pthread_mutex_unlock(&rt->locks[room_idx]);
 }
 
 void broadcast(Client *sender, Room *r, char *msg, size_t len) {
@@ -338,7 +337,8 @@ void* client_thread(void* arg) {
                 memset(room_infos, '\0', sizeof(room_infos));
                 strcat(room_infos, "\n[Room Table]\n");
                 for(int i = 0; i < j; i++) {
-                    snprintf(temp, sizeof(temp), "Room %d: %d/%d\n", room_ids[i], curr_users[i], MAX_USER_EACH_ROOM);
+                    snprintf(temp, sizeof(temp), "Room %d: %d/%d\n", 
+                    room_ids[i], curr_users[i], MAX_USER_EACH_ROOM);
                     strcat(room_infos, temp);
                 }
                 enqueue_msg(c->mq, room_infos, strlen(room_infos));
@@ -349,8 +349,10 @@ void* client_thread(void* arg) {
                 char buf[BUF_SIZE];
                 char log_buf[LOGBUF_SIZE];
                 if(response != -1) {
-                    snprintf(buf, sizeof(buf), "New Room Created Successfully, ID: %d\n", response);
-                    snprintf(log_buf, sizeof(log_buf), "%s by %d(%s:%d)", buf, c->client_fd, inet_ntoa(c->client_addr.sin_addr), ntohs(c->client_addr.sin_port));
+                    snprintf(buf, sizeof(buf), "New Room Created Successfully, ID: %d\n", 
+                    response);
+                    snprintf(log_buf, sizeof(log_buf), "%s by %d(%s:%d)", buf, c->client_fd, 
+                    inet_ntoa(c->client_addr.sin_addr), ntohs(c->client_addr.sin_port));
                 } else {
                     snprintf(buf, sizeof(buf), "Failed to Create Room.\n");
                 }
@@ -407,13 +409,16 @@ void* client_thread(void* arg) {
                 sender = c->recv_buf;
 
                 char out_msg[BUF_SIZE], in_msg[BUF_SIZE];
-                snprintf(out_msg, sizeof(out_msg), "**Alert** %s moved from %d to %d\n", sender, lastroom, c->room_idx);
-                snprintf(in_msg, sizeof(in_msg), "**Alert** %s moved from %d to %d\n", sender, lastroom, c->room_idx);
+                snprintf(out_msg, sizeof(out_msg), 
+                "**Alert** %s moved from %d to %d\n", sender, lastroom, c->room_idx);
+                snprintf(in_msg, sizeof(in_msg), 
+                "**Alert** %s moved from %d to %d\n", sender, lastroom, c->room_idx);
                 broadcast(c, rt->rooms[lastroom], out_msg, sizeof(out_msg));
                 broadcast(c, rt->rooms[c->room_idx], in_msg, sizeof(in_msg));
 
                 char client_resp[BUF_SIZE];
-                snprintf(client_resp, sizeof(client_resp), "**Alert** You moved from %d to %d successfully!\n", lastroom, c->room_idx);
+                snprintf(client_resp, sizeof(client_resp), 
+                "**Alert** You moved from %d to %d successfully!\n", lastroom, c->room_idx);
                 enqueue_msg(c->mq, client_resp, strlen(client_resp));
 
                 continue;
@@ -448,17 +453,14 @@ void* client_thread(void* arg) {
                     pthread_mutex_unlock(&rt->locks[roomno]);
 
                     char errmsg[BUF_SIZE];
-                    snprintf(errmsg, sizeof(errmsg), "Cannot delete non empty room: %d\n", roomno);
+                    snprintf(errmsg, sizeof(errmsg), 
+                    "Cannot delete non empty room: %d\n", roomno);
                     enqueue_msg(c->mq, errmsg, strlen(errmsg));
                     continue;
                 }
-                rt->rooms[roomno] = NULL;
+                delete_room(roomno);
                 pthread_mutex_unlock(&rt->locks[roomno]);
 
-                pthread_mutex_unlock(&r->lock);
-                delete_room(roomno);
-
-                delete_room(roomno);
                 char log_buf[LOGBUF_SIZE];
                 snprintf(log_buf, sizeof(log_buf),
                     "User %d (%s:%d) deleted room %d",
@@ -470,11 +472,13 @@ void* client_thread(void* arg) {
                 log_print(log_buf);
 
                 char client_resp[BUF_SIZE];
-                snprintf(client_resp, sizeof(client_resp), "Room deleted successfully: %d\n", roomno);
+                snprintf(client_resp, sizeof(client_resp), 
+                "Room deleted successfully: %d\n", roomno);
                 enqueue_msg(c->mq, client_resp, strlen(client_resp));
                 continue;
             }
 
+            // normal chat
             char log_buf[LOGBUF_SIZE];
             snprintf(log_buf, sizeof(log_buf),
                 "Message send from %d (%s:%d) in room %d: %s",
@@ -487,6 +491,7 @@ void* client_thread(void* arg) {
             log_print(log_buf);
             broadcast(c, rt->rooms[c->room_idx], c->recv_buf, n);
         } else if (n == 0) {
+            // connection close
             char log_buf[LOGBUF_SIZE];
             snprintf(log_buf, sizeof(log_buf),
                 "User %d (%s:%d) disconnected from room %d\n",
@@ -498,6 +503,7 @@ void* client_thread(void* arg) {
             log_print(log_buf);
             break;
         } else {
+            // If nonblock error, ignore
             if(errno == EAGAIN || errno == EWOULDBLOCK) {
             } else {
                 perror("recv error");
@@ -510,6 +516,11 @@ void* client_thread(void* arg) {
     }
 
     leave_room(c->room_idx, c);
+    close(c->client_fd);
+    pthread_mutex_destroy(&c->mq->lock);
+    free(c->mq);
+    free(c);
+    
     return NULL;
 }
 
