@@ -24,7 +24,7 @@ typedef struct Room Room;
 typedef struct RoomTable RoomTable;
 
 typedef struct MessageQueue {
-    char messages[BUF_SIZE*10];
+    char messages[QUEUE_SIZE];
     int head;
     int tail;
     pthread_mutex_t lock;
